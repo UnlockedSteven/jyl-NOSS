@@ -3,7 +3,7 @@
 #include "chosetabledialog.hpp" // 假设这是上一级选择表的界面
 
 // 全局变量定义
-QString extern_commodity;
+extern QString extern_commodity;
 
 MainWindow::MainWindow(const QString &commodityTable, QWidget *parent)
     : QMainWindow(parent)
