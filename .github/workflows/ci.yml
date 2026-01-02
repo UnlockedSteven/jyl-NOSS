@@ -1,43 +1,75 @@
-name: Qt Build
+name: Qt Build and Test
 
-on: [push]
+# 触发条件
+on: [push, pull_request]
+
+# 权限设置：只读代码即可
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read 
 
     steps:
-      - name: Checkout
+      # ----------------------------------------------------------------
+      # 第一步：检出代码（修复 Git 128 错误的核心部分）
+      # ----------------------------------------------------------------
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          submodules: false # 强制关闭子模块，防止因为空引用报错
-          fetch-depth: 1    # 浅克隆，速度快且不容易出错
-          lfs: false        # 关闭大文件支持，防止配额问题
+          submodules: false   # 【关键】强制关闭子模块，防止因坏链接导致崩溃
+          fetch-depth: 1      # 【关键】只下载最新代码，不下载历史记录，最不容易出错
+          lfs: false          # 【关键】不下载大文件存储，防止配额错误
+          clean: true         # 每次都清理环境
 
-      - name: Install Qt
+      # ----------------------------------------------------------------
+      # 第二步：安装 Qt 环境
+      # ----------------------------------------------------------------
+      - name: Install Qt 5
         run: |
           sudo apt-get update
-          sudo apt-get install -y qtbase5-dev qt5-qmake build-essential
+          # 安装 Qt 核心、GUI、SQL 模块以及构建工具
+          sudo apt-get install -y qtbase5-dev qt5-qmake qtbase5-dev-tools \
+                                  libqt5sql5-sqlite build-essential
 
+      # ----------------------------------------------------------------
+      # 第三步：构建项目 (使用 qmake 自动处理 Q_OBJECT)
+      # ----------------------------------------------------------------
       - name: Build
         run: |
-                             
-          # 1. 找到所有 .cpp 文件 (排除 moc_ 开头的临时文件以防万一)
-          SRCS=$(find . -name "*.cpp" ! -name "moc_*.cpp")
+          echo "开始构建..."
           
-          echo "Compiling: $SRCS"
+          # 1. 自动生成 .pro 项目文件
+          # 我们显式告诉 qmake 我们需要 sql, gui, widgets 模块
+          qmake -project "QT += core gui widgets sql" "CONFIG += console" -o Project.pro
           
-          # 2. 编译
-          g++ -o MyApp $SRCS $(pkg-config --cflags --libs Qt5Core Qt5Widgets Qt5Sql) -fPIC
+          # 2. 生成 Makefile
+          qmake Project.pro
           
-      - name: Test Run
+          # 3. 编译代码
+          make
+          
+          echo "构建成功！"
+
+      # ----------------------------------------------------------------
+      # 第四步：验证 (简单的构建检查)
+      # ----------------------------------------------------------------
+      - name: Verify Build
         run: |
-          # 只要编译出来的文件存在，就算成功
-          if [ -f "./MyApp" ]; then
-            echo "Build Success!"
+          # 查找生成的可执行文件 (排除 .o, .cpp, .h, Makefile 等)
+          # qmake 生成的可执行文件通常与存放 .pro 的文件夹同名，或者叫 Project
+          
+          if [ -f "Project" ]; then
+            echo "✅ 成功生成可执行文件: Project"
           else
-            echo "Build Failed!"
-            exit 1
+            # 尝试找其他可能的名字
+            FOUND=$(find . -maxdepth 1 -type f -executable -not -name "*.*" | head -n 1)
+            if [ -n "$FOUND" ]; then
+              echo "✅ 成功生成可执行文件: $FOUND"
+            else
+              echo "❌ 未找到可执行文件，构建可能失败"
+              ls -la # 列出文件帮你看看到底生成了什么
+              exit 1
+            fi
           fi
